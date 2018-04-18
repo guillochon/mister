@@ -159,8 +159,8 @@ for (v, k) in [(v, k) for k, v in vars().items() if k.endswith('_rgi')]:
     with open(k + '.pickle', 'wb') as f:
         cloudpickle.dump(v, f)
 
+# Testing functions
 with open('radius_rgi.pickle', 'rb') as f:
     pickled_radius_rgi = pickle.load(f)
 
-# Testing functions
 print(pickled_radius_rgi([0, np.min(ims), 0.5]))
