@@ -1,11 +1,13 @@
 """Determine fits that minimize error for MIST dataset."""
 import codecs
 import os
+import pickle
 import re
 import warnings
 from collections import OrderedDict
 from glob import glob
 
+import cloudpickle
 import numpy as np
 from scipy.interpolate import RegularGridInterpolator
 from tqdm import tqdm
@@ -16,56 +18,110 @@ from dynesty import NestedSampler
 warnings.filterwarnings("ignore")
 
 
-def rad_func(b, ms, ts):
-    """Use combination of power laws to fit radius."""
-    scaled_ms = np.log10(ms)
-    scaled_ms -= np.log10(np.min(ims))
-    scaled_ms /= np.log10(np.max(ims))
-    radius = b[0] * ms ** (b[1] + b[2] * (1.0 + b[3] * ts) +
-                           b[4] * scaled_ms) * (
-        1.0 + b[3] * ts ** (b[5] + b[6] * (1.0 + b[3] * ts) +
-                            b[7] * scaled_ms))
-    return radius
+def construct_analytical_functions():
+    """Construct invertible functions based on interpolations."""
+    def rad_func(b, lzs, ms, ts):
+        """Use combination of power laws to fit radius."""
+        scaled_lms = np.log10(ms)
+        scaled_lms -= min_ilms
+        scaled_lms /= np.max(scaled_lms)
+        scaled_lzs = lzs
+        scaled_lzs -= min_ilzs
+        scaled_lzs /= np.max(scaled_lzs)
+        scaled_lzs += 0.5
+        scaled_ts = ts + 0.5
+        # print(min_ilms, max_ilms, scaled_lms)
+        # print(scaled_lzs)
+        # print(scaled_ts)
+        # raise
+        radius = b[0] * ms ** (b[1] + b[2] * scaled_ts + b[3] * scaled_lms) * (
+            scaled_ts ** (b[4] + b[5] * scaled_ts + b[6] * scaled_lms)) * (
+            scaled_lzs ** b[7])
+        return radius
 
+    def rad_log_like(b):
+        """Objective function for radius fitting."""
+        log_like = -np.sum(((rad_func(b, mlzs, mms, mts) - irs) / irs) ** 2)
+        return log_like
 
-def rad_log_like(b):
-    """Objective function for radius fitting."""
-    log_like = -np.sum(((rad_func(b, mms, mts) - irs) / irs) ** 2)
-    return log_like
+    def ptform(u):
+        """Map priors to physical units."""
+        x = u.copy()
+        for vi, v in enumerate(free_vars):
+            x[vi] = free_vars[v][0] + (
+                free_vars[v][1] - free_vars[v][0]) * u[vi]
+        return x
 
+    mlzs, mms, mts = np.meshgrid(ilzs, ims, its, indexing='ij')
 
-def ptform(u):
-    """Map priors to physical units."""
-    x = u.copy()
-    for vi, v in enumerate(free_vars):
-        x[vi] = free_vars[v][0] + (free_vars[v][1] - free_vars[v][0]) * u[vi]
-    return x
+    ndim = len(list(free_vars.keys()))
+
+    dsampler = NestedSampler(
+        rad_log_like, ptform, ndim, sample='rwalk')
+
+    # dsampler.run_nested(dlogz_init=0.01)
+    dsampler.run_nested(dlogz=0.01)
+
+    res = dsampler.results
+
+    bbest = res['samples'][-1]
+    print(res['logl'])
+    print(list(res.keys()))
+
+    print(bbest)
+    prt_ts = np.linspace(0, 1, 5)
+    test_masses = 10.0 ** np.linspace(min_ilms, max_ilms, 3)
+    test_lzs = np.linspace(min_ilzs, max_ilzs, 3)
+    for tlz in test_lzs:
+        for tm in test_masses:
+            print('Radii for logz = {} and m = {}'.format(tlz, tm))
+            print(radius_rgi([[tlz, tm, x] for x in prt_ts]))
+            print(rad_func(bbest, tlz, tm, prt_ts))
+    max_frac_err = np.max(np.abs(rad_func(bbest, mlzs, mms, mts) - irs) / irs)
+
+    print('Maximum fractional error: {:.1%}'.format(max_frac_err))
 
 
 free_vars = OrderedDict((
-    ('r0', (0.5, 1.5)),
-    ('mpow', (0, 10)),
+    ('r0', (0.25, 1.5)),
+    ('mpow', (-10, 10)),
     ('mtrunning', (-5, 5)),
     ('mrunning', (-5, 5)),
-    ('tnorm', (-5, 5)),
-    ('tpow', (0, 10)),
+    ('tpow', (-10, 10)),
     ('trunning', (-10, 10)),
-    ('tmrunning', (-10, 10))
+    ('tmrunning', (-10, 10)),
+    ('zpow', (-10, 10))
 ))
 
 its = np.linspace(0, 1, 101)
 
 irs = []
 ims = []
+ilzs = []
 ilifetimes = []
-for metal_folder in glob('../MIST/*'):
+
+for metal_folder in sorted(glob('../MIST/*')):
+    lz = float(metal_folder.split('/')[-1].split('_')[3].replace(
+        'm', '-').replace('p', ''))
+    ilzs.append(lz)
+    ilz_order = np.argsort(ilzs)
+ilzs = []
+
+for ilz, metal_folder in enumerate(tqdm(np.array(
+        sorted(glob('../MIST/*')))[ilz_order])):
+    lz = float(metal_folder.split('/')[-1].split('_')[3].replace(
+        'm', '-').replace('p', ''))
+    ilzs.append(lz)
+    irs.append([])
+    ilifetimes.append([])
     for mfi, mass_file in enumerate(tqdm(sorted(
             glob(os.path.join(metal_folder, '*.eep'))))):
-        # if mfi > 15:
+        # if mfi > 10:
         #     break
         mass = mass_file.split('/')[-1].split('M')[0]
         mass = float(mass[:3] + '.' + mass[3:])
-        ims.append(mass)
+        if ilz == 0:
+            ims.append(mass)
         ts = []
         rs = []
         with codecs.open(mass_file, 'r', encoding='utf-8') as mf:
@@ -85,38 +141,26 @@ for metal_folder in glob('../MIST/*'):
                 rs.append(r)
         ts = np.array(ts)
         ts -= min(ts)
-        ilifetimes.append(ts[-1])
+        ilifetimes[ilz].append(ts[-1])
         ts /= max(ts)
 
         rs = np.interp(its, ts, rs)
 
-        irs.append(rs)
-    break  # just 1 for now
+        irs[ilz].append(rs)
 
-rad_rgi = RegularGridInterpolator((ims, its), irs)
+min_ilms, max_ilms = np.log10(np.min(ims)), np.log10(np.max(ims))
+min_ilzs, max_ilzs = np.min(ilzs), np.max(ilzs)
 
-mms, mts = np.meshgrid(ims, its, indexing='ij')
+radius_rgi = RegularGridInterpolator((ilzs, ims, its), irs)
 
-ndim = len(list(free_vars.keys()))
+lifetime_rgi = RegularGridInterpolator((ilzs, ims), ilifetimes)
 
-dsampler = NestedSampler(
-    rad_log_like, ptform, ndim, sample='rwalk')
+for (v, k) in [(v, k) for k, v in vars().items() if k.endswith('_rgi')]:
+    with open(k + '.pickle', 'wb') as f:
+        cloudpickle.dump(v, f)
 
-# dsampler.run_nested(dlogz_init=0.01)
-dsampler.run_nested(dlogz=0.01)
+with open('radius_rgi.pickle', 'rb') as f:
+    pickled_radius_rgi = pickle.load(f)
 
-res = dsampler.results
-
-bbest = res['samples'][-1]
-print(res['logl'])
-print(list(res.keys()))
-
-print(bbest)
-prt_ts = np.linspace(0, 1, 5)
-test_masses = 10.0 ** np.arange(-1, 2)
-for tm in test_masses:
-    print(rad_rgi([[tm, x] for x in prt_ts]))
-    print(rad_func(bbest, tm, prt_ts))
-max_frac_err = np.max(np.abs(rad_func(bbest, mms, mts) - irs) / irs)
-
-print('Maximum fractional error: {:.1%}'.format(max_frac_err))
+# Testing functions
+print(pickled_radius_rgi([0, np.min(ims), 0.5]))
