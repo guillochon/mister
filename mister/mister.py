@@ -133,7 +133,7 @@ class Mister(object):
         import codecs
         import re
 
-        import cloudpickle
+        import pickle
 
         import numpy as np
 
@@ -152,13 +152,13 @@ class Mister(object):
                 'm', '-').replace('p', ''))
             self._ilzs.append(lz)
             ilz_order = np.argsort(self._ilzs)
-        ilzs = []
+        self._ilzs = []
 
         for ilz, metal_folder in enumerate(tqdm(np.array(
                 sorted(glob('../MIST/*')))[ilz_order])):
             lz = float(metal_folder.split('/')[-1].split('_')[3].replace(
                 'm', '-').replace('p', ''))
-            ilzs.append(lz)
+            self._ilzs.append(lz)
             self._irs.append([])
             self._ilifetimes.append([])
             for mfi, mass_file in enumerate(tqdm(sorted(
@@ -205,4 +205,4 @@ class Mister(object):
                 '_rgi') and not k.startswith('_pickled_')]:
             with open(os.path.join(
                     self._dir_path, 'pickles', k + '.pickle'), 'wb') as f:
-                cloudpickle.dump(v, f)
+                pickle.dump(v, f)
