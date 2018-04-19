@@ -9,12 +9,17 @@ from scipy.interpolate import RegularGridInterpolator
 class Mister(object):
     """Class that computes main sequence star properties from MIST library."""
 
+    def __init__(self, **kwargs):
+        """Initialize class."""
+        self._dir_path = os.path.dirname(os.path.realpath(__file__))
+
     def radius(self, params):
         """Return star main sequence radius."""
         try:
             self._pickled_radius_rgi
         except AttributeError:
-            with open('radius_rgi.pickle', 'rb') as f:
+            with open(self._dir_path, 'pickles',
+                      'radius_rgi.pickle', 'rb') as f:
                 self._pickled_radius_rgi = pickle.load(f)
 
         return self._pickled_radius_rgi(params)
@@ -24,7 +29,8 @@ class Mister(object):
         try:
             self._pickled_lifetime_rgi
         except AttributeError:
-            with open('lifetime_rgi.pickle', 'rb') as f:
+            with open(self._dir_path, 'pickles',
+                      'lifetime_rgi.pickle', 'rb') as f:
                 self._pickled_lifetime_rgi = pickle.load(f)
 
         return self._pickled_lifetime_rgi(params)
@@ -197,5 +203,6 @@ class Mister(object):
 
         for (v, k) in [(v, k) for k, v in vars().items() if k.endswith(
                 '_rgi') and not k.startswith('_pickled_')]:
-            with open(k + '.pickle', 'wb') as f:
+            with open(os.path.join(
+                    self._dir_path, 'pickles', k + '.pickle'), 'wb') as f:
                 cloudpickle.dump(v, f)
