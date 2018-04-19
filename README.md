@@ -6,5 +6,5 @@ Python package that returns the basic properties of main-sequence stars taken fr
 
 At the moment, this package provides the following functions:
 
-*   `radius(metallicity, mass, age_fraction)``
+*   `radius(metallicity, mass, age_fraction)`
 *   `lifetime(metallicity, mass)`

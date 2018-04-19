@@ -18,8 +18,8 @@ class Mister(object):
         try:
             self._pickled_radius_rgi
         except AttributeError:
-            with open(self._dir_path, 'pickles',
-                      'radius_rgi.pickle', 'rb') as f:
+            with open(os.path.join(self._dir_path, 'pickles',
+                                   'radius_rgi.pickle'), 'rb') as f:
                 self._pickled_radius_rgi = pickle.load(f)
 
         return self._pickled_radius_rgi(params)
@@ -29,8 +29,8 @@ class Mister(object):
         try:
             self._pickled_lifetime_rgi
         except AttributeError:
-            with open(self._dir_path, 'pickles',
-                      'lifetime_rgi.pickle', 'rb') as f:
+            with open(os.path.join(self._dir_path, 'pickles',
+                                   'lifetime_rgi.pickle'), 'rb') as f:
                 self._pickled_lifetime_rgi = pickle.load(f)
 
         return self._pickled_lifetime_rgi(params)
