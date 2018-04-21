@@ -140,12 +140,16 @@ class Mister(object):
         from tqdm import tqdm
         from glob import glob
 
+        np.seterr(all='raise')
+
         self._its = np.linspace(0, 1, 101)
 
         self._irs = []
         self._ims = []
         self._ilzs = []
         self._ilifetimes = []
+
+        gaps = []
 
         for metal_folder in sorted(glob('../MIST/*')):
             lz = float(metal_folder.split('/')[-1].split('_')[3].replace(
@@ -162,9 +166,11 @@ class Mister(object):
             self._irs.append([])
             self._ilifetimes.append([])
             for mfi, mass_file in enumerate(tqdm(sorted(
-                    glob(os.path.join(metal_folder, '*.eep'))))):
-                # if mfi > 10:
+                    glob(os.path.join(metal_folder, '*.eep*'))))):
+                # if mfi > 3:
                 #     break
+                if os.path.isfile(mass_file + '_INTERP'):
+                    continue
                 mass = mass_file.split('/')[-1].split('M')[0]
                 mass = float(mass[:3] + '.' + mass[3:])
                 if ilz == 0:
@@ -187,13 +193,40 @@ class Mister(object):
                         ts.append(t)
                         rs.append(r)
                 ts = np.array(ts)
+                if len(ts) <= 1:
+                    gaps.append([ilz, mfi])
+                    self._ilifetimes[ilz].append(None)
+                    self._irs[ilz].append(None)
+                    print('Gap at {}, {}.'.format(ilz, mfi))
+                    continue
+
                 ts -= min(ts)
                 self._ilifetimes[ilz].append(ts[-1])
-                ts /= max(ts)
+                try:
+                    ts /= max(ts)
+                except Exception:
+                    print(ts)
+                    print(mass_file)
+                    raise
 
                 rs = np.interp(self._its, ts, rs)
 
                 self._irs[ilz].append(rs)
+
+        for gap in gaps:
+            i = gap[0]
+            j = gap[1]
+            im1, ip1 = i - 1, i + 1
+            jm1, jp1 = j - 1, j + 1
+
+            if im1 >= 0 and ip1 < len(self._ilzs) and self._irs[
+                    im1][j] is not None and self._irs[ip1][j] is not None:
+                self._irs[i][j] = 0.5 * (self._irs[im1][j] + self._irs[ip1][j])
+            elif jm1 >= 0 and jp1 < len(self._ims) and self._irs[
+                    i][jm1] is not None and self._irs[i][jp1] is not None:
+                self._irs[i][j] = 0.5 * (self._irs[i][jm1] + self._irs[i][jp1])
+            else:
+                raise ValueError('Gap unfillable!')
 
         radius_rgi = RegularGridInterpolator(  # noqa: F841
             (self._ilzs, self._ims, self._its), self._irs)
@@ -205,4 +238,4 @@ class Mister(object):
                 '_rgi') and not k.startswith('_pickled_')]:
             with open(os.path.join(
                     self._dir_path, 'pickles', k + '.pickle'), 'wb') as f:
-                pickle.dump(v, f)
+                pickle.dump(v, f, protocol=2)
