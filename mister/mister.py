@@ -19,7 +19,7 @@ class Mister(object):
             self._pickled_radius_rgi
         except AttributeError:
             with open(os.path.join(self._dir_path, 'pickles',
-                                   'radius_rgi.pickle'), 'rb') as f:
+                                   '_radius_rgi.pickle'), 'rb') as f:
                 self._pickled_radius_rgi = pickle.load(f)
 
         return self._pickled_radius_rgi(params)
@@ -30,7 +30,7 @@ class Mister(object):
             self._pickled_lifetime_rgi
         except AttributeError:
             with open(os.path.join(self._dir_path, 'pickles',
-                                   'lifetime_rgi.pickle'), 'rb') as f:
+                                   '_lifetime_rgi.pickle'), 'rb') as f:
                 self._pickled_lifetime_rgi = pickle.load(f)
 
         return self._pickled_lifetime_rgi(params)
@@ -83,13 +83,13 @@ class Mister(object):
 
         self._free_vars = OrderedDict((
             ('r0', (0.25, 1.5)),
-            ('mpow', (-10, 10)),
+            ('mpow', (0, 5)),
             ('mtrunning', (-5, 5)),
             ('mrunning', (-5, 5)),
-            ('tpow', (-10, 10)),
-            ('trunning', (-10, 10)),
-            ('tmrunning', (-10, 10)),
-            ('zpow', (-10, 10))
+            ('tpow', (-5, 5)),
+            ('trunning', (-5, 5)),
+            ('tmrunning', (-5, 5)),
+            ('zpow', (-5, 5))
         ))
 
         self._min_ilms, self._max_ilms = np.log10(
@@ -105,22 +105,19 @@ class Mister(object):
             self.rad_log_like, self.ptform, self._ndim, sample='rwalk')
 
         # dsampler.run_nested(dlogz_init=0.01)
-        dsampler.run_nested(dlogz=0.01)
+        dsampler.run_nested(dlogz=1000)
 
         res = dsampler.results
 
         bbest = res['samples'][-1]
-        print(res['logl'])
-        print(list(res.keys()))
 
-        print(bbest)
         prt_ts = np.linspace(0, 1, 5)
         test_masses = 10.0 ** np.linspace(self._min_ilms, self._max_ilms, 3)
         test_lzs = np.linspace(self._min_ilzs, self._max_ilzs, 3)
         for tlz in test_lzs:
             for tm in test_masses:
                 print('Radii for logz = {} and m = {}'.format(tlz, tm))
-                print(self.radius_rgi([[tlz, tm, x] for x in prt_ts]))
+                print(self._radius_rgi([[tlz, tm, x] for x in prt_ts]))
                 print(self.rad_func(bbest, tlz, tm, prt_ts))
         max_frac_err = np.max(np.abs(self.rad_func(
             bbest, self._mlzs, self._mms, self._mts
@@ -139,8 +136,6 @@ class Mister(object):
 
         from tqdm import tqdm
         from glob import glob
-
-        np.seterr(all='raise')
 
         self._its = np.linspace(0, 1, 101)
 
@@ -165,12 +160,14 @@ class Mister(object):
             self._ilzs.append(lz)
             self._irs.append([])
             self._ilifetimes.append([])
+            ifm = 0
             for mfi, mass_file in enumerate(tqdm(sorted(
                     glob(os.path.join(metal_folder, '*.eep*'))))):
-                # if mfi > 3:
+                # if ifm > 10:
                 #     break
                 if os.path.isfile(mass_file + '_INTERP'):
                     continue
+                ifm += 1
                 mass = mass_file.split('/')[-1].split('M')[0]
                 mass = float(mass[:3] + '.' + mass[3:])
                 if ilz == 0:
@@ -194,7 +191,7 @@ class Mister(object):
                         rs.append(r)
                 ts = np.array(ts)
                 if len(ts) <= 1:
-                    gaps.append([ilz, mfi])
+                    gaps.append([ilz, ifm])
                     self._ilifetimes[ilz].append(None)
                     self._irs[ilz].append(None)
                     print('Gap at {}, {}.'.format(ilz, mfi))
@@ -228,13 +225,13 @@ class Mister(object):
             else:
                 raise ValueError('Gap unfillable!')
 
-        radius_rgi = RegularGridInterpolator(  # noqa: F841
+        self._radius_rgi = RegularGridInterpolator(  # noqa: F841
             (self._ilzs, self._ims, self._its), self._irs)
 
-        lifetime_rgi = RegularGridInterpolator(  # noqa: F841
+        self._lifetime_rgi = RegularGridInterpolator(  # noqa: F841
             (self._ilzs, self._ims), self._ilifetimes)
 
-        for (v, k) in [(v, k) for k, v in vars().items() if k.endswith(
+        for (v, k) in [(v, k) for k, v in self.__dict__.items() if k.endswith(
                 '_rgi') and not k.startswith('_pickled_')]:
             with open(os.path.join(
                     self._dir_path, 'pickles', k + '.pickle'), 'wb') as f:
